@@ -40,6 +40,8 @@ void setup()
   sync.SetOutputLimits(-128.0, 128.0);
   sync.SetTunings(1.0, 0.1, 0, P_ON_E);
   velPID.SetTunings(2.0, 2.0, 0, P_ON_E);
+
+  MonitorBattery();
 }
 
 void loop() 
@@ -69,16 +71,16 @@ void MonitorBattery()
 {
    unsigned long now = millis();
     
-   if(now - lastBatteryReadTime >= 1000)
+   if(now - lastBatteryReadTime >= 1000) // update every second
    {    
        voltage = GetBatteryVoltage() * 1000;
        
-       if(voltage > 12)
+       if(voltage > 12000)
        {
           digitalWrite(greenLed, LOW);
           digitalWrite(redLed, HIGH);
        }
-       else if (voltage > 4)
+       else if (voltage > 4000)
        {
           digitalWrite(greenLed, HIGH);
           digitalWrite(redLed, LOW);
