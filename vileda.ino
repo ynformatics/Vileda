@@ -41,6 +41,7 @@ void setup()
   sync.SetTunings(1.0, 0.1, 0, P_ON_E);
   velPID.SetTunings(2.0, 2.0, 0, P_ON_E);
 
+  lastBatteryReadTime = millis() - 10000; // force immediate update
   MonitorBattery();
 }
 
@@ -98,12 +99,16 @@ void MonitorBattery()
           digitalWrite(greenLed, LOW);
           digitalWrite(redLed, HIGH);
        }
-       else 
-       {
-          if(voltage > 4000)
-             beep(1);
+       else if(voltage > 4000)
+       {         
+          beep(1);
           digitalWrite(greenLed, HIGH);
           digitalWrite(redLed, LOW);
+       }
+       else
+       {
+          digitalWrite(greenLed, HIGH);
+          digitalWrite(redLed, HIGH);
        }
       
 
