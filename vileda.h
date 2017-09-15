@@ -92,20 +92,23 @@ PID velRightPID(&velRightIP, &rightPower, &velRightSP, &velRightBias, 2.0, 2.0, 
 
 int sampleTime = 15; //  ms
 unsigned long lastTime;
-bool driving = false;
 bool spin = false;
 
 const double ticksToMm = 1.0 / mmToTicks;
 const double ticksToDegrees = ticksToMm * 180.0 / (2 * wheelbase * PI);
 
-double voltage = 0;
+unsigned int voltage = 0; // mV
+unsigned int charge = 0; //mAh
 unsigned long lastBatteryReadTime = 0;
 
+unsigned long lastBeepTime = 0;
+int beepsRemaining = 0;
 
 enum DriveMode {
     DM_DRIVE_DIRECT = 0,
     DM_DRIVE = 1,
-    DM_DRIVE_PWM = 2
+    DM_DRIVE_PWM = 2,
+    DM_STOPPED = 3
 };
 
 enum OIMode {
@@ -214,17 +217,18 @@ int requestedVelRight;
 int requestedVelLeft;
 
 enum OIMode mode = OFF;
-enum DriveMode driveMode = DM_DRIVE;
+enum DriveMode driveMode = DM_STOPPED;
 
 int pwmRight = 0;
 int pwmLeft = 0;
 
+void ProcessBeeps();
 
 void MonitorBattery();
 
 double GetBatteryVoltage();
 
-unsigned int GetBatteryCharge(unsigned int mV);
+unsigned int GetBatteryCharge(unsigned int mV, unsigned int capacity);
 
 void ExecCommand(byte* command);
 

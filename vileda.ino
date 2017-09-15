@@ -2,7 +2,7 @@
 #include "pitches.h"
 
 #include "vileda.h"
-
+int dbcount = 0;
 void setup() 
 {
   Serial.begin(115200);
@@ -56,17 +56,34 @@ void loop()
   digitalWrite(switchLedL, !digitalRead(rightBumper));
   digitalWrite(switchLedS, !digitalRead(leftBumper));
  
-  if( mode != FULL && (digitalRead(rightBumper) || digitalRead(leftBumper) || !digitalRead(wheelsUp)))
+  if( driveMode != DM_STOPPED && mode != FULL && (digitalRead(rightBumper) || digitalRead(leftBumper) || !digitalRead(wheelsUp)))
   {
      allStop();
      mode = PASSIVE;
+     beep(3);
   }      
 
   MonitorBattery();
+
+  ProcessBeeps();
   
   SampleSync();
 }
 
+void ProcessBeeps()
+{
+   if(beepsRemaining == 0)
+      return;
+
+   unsigned long now = millis();
+    
+   if(now - lastBeepTime >= 200) // 200ms between beeps
+   {    
+       tone(speaker, NOTE_A7,50);
+       lastBeepTime = now;
+       beepsRemaining--;
+   }
+}
 void MonitorBattery()
 {
    unsigned long now = millis();
@@ -74,22 +91,21 @@ void MonitorBattery()
    if(now - lastBatteryReadTime >= 1000) // update every second
    {    
        voltage = GetBatteryVoltage() * 1000;
+       charge =  GetBatteryCharge(voltage, batteryCapacity);
        
-       if(voltage > 12000)
+       if(voltage > 13500)
        {
           digitalWrite(greenLed, LOW);
           digitalWrite(redLed, HIGH);
        }
-       else if (voltage > 4000)
+       else 
        {
+          if(voltage > 4000)
+             beep(1);
           digitalWrite(greenLed, HIGH);
           digitalWrite(redLed, LOW);
        }
-       else
-       {
-          digitalWrite(greenLed, HIGH);
-          digitalWrite(redLed, HIGH);
-       }
+      
 
        lastBatteryReadTime = now;
    }
@@ -100,14 +116,21 @@ double GetBatteryVoltage()
   return analogRead(battVoltage) * batteryVoltageGradient + batteryVoltageOffset;
 }
 
-unsigned int GetBatteryCharge(unsigned int mV)
+
+unsigned int GetBatteryCharge(unsigned int mV, unsigned int capacity)
 {
-  if(mV > 14700) // 1400 - 2000
-    return 1700;
-  if(mV > 13700) // 200 1400
-    return 800;
-                 // 0 200
-  return 0;
+  // guess remaining charge from voltage alone
+  // using data from https://www.maximintegrated.com/en/app-notes/index.mvp/id/121
+  // assuming T=20C, discharge = 0.7C
+  //
+  if(mV < 12000)
+    return 0;
+  if(mV > 14400)
+    return  (0.64 + (mV - 14400) * 0.00015) * capacity;
+  else if(mV > 13600)
+    return  (0.04 + (mV - 13600) * 0.00075) * capacity;
+  else
+    return (mV - 12000) * 0.000025 * capacity;
 }
 
 void ExecCommand(byte* command)
@@ -273,11 +296,8 @@ void DoStream(bool withChecksum)
          streamPacket[streamPacketLength++] = ((unsigned int)voltage) & 0xFF; 
          break;
       case ID_CHARGE:
-         {
-           unsigned int c = GetBatteryCharge(voltage);
-           streamPacket[streamPacketLength++] = c >> 8;
-           streamPacket[streamPacketLength++] = c & 0xFF;
-         }
+         streamPacket[streamPacketLength++] = charge >> 8;
+         streamPacket[streamPacketLength++] = charge & 0xFF;        
          break;
       case ID_CAPACITY:
          streamPacket[streamPacketLength++] = batteryCapacity >> 8;;
@@ -363,7 +383,6 @@ void DrivePWM(int pwmR, int pwmL)
   pwmRight = constrain(abs(pwmR), 0, 255);
   pwmLeft =  constrain(abs(pwmL), 0, 255);
  
-  driving = true;
   lastTime = millis();  
 }
 
@@ -395,7 +414,6 @@ void DriveDirect(int velRight, int velLeft)
   velLeftPID.SetMode(AUTOMATIC);
   velLeftPID.SetOutputLimits(0,255);
   
-  driving = true;
   lastTime = millis();  
 }
 
@@ -430,7 +448,6 @@ void Drive(int velocity, int radius)
   velPID.SetMode(AUTOMATIC);
   velPID.SetOutputLimits(0,255);
   
-  driving = true; 
   lastTime = millis(); 
 }
 
@@ -448,7 +465,7 @@ void SampleSync()
           rightEncoder = rightEncoderCount;
       interrupts();
         
-      if(driving)
+      if(driveMode != DM_STOPPED)
       {                   
         double leftEncoderDiff = abs(leftEncoder - prevLeftEncoder);
         double rightEncoderDiff = abs(rightEncoder - prevRightEncoder);
@@ -514,11 +531,15 @@ void SampleSync()
                   
               int pos = requestPower + syncPower;
               int neg = requestPower - syncPower;
-  
-  //           Serial.print(direction == FORWARD ? "FOR " : "BACK ");Serial.print(turn == CW ? "CW " : "CCW ");Serial.print(spin ? " SPIN " : "");
-  //           Serial.print(" le:");Serial.print(leftEncoderDiff); Serial.print(" re:");Serial.print(rightEncoderDiff); 
-  //           Serial.print(" ff:");Serial.print(followFactor); Serial.print(" req:");Serial.print(requestPower); Serial.print(" pos:");Serial.print(pos);Serial.print(" neg:");Serial.print(neg);Serial.println();
-   
+
+//  if(dbcount++ % 10 == 0)
+//  {
+//             Serial.print(direction == FORWARD ? "FOR " : "BACK ");Serial.print(clockwise ? "CW " : "CCW ");Serial.print(spin ? " SPIN " : "");
+//             Serial.print(" dt:");Serial.print(timeChange);
+//             Serial.print(" le:");Serial.print(leftEncoder); Serial.print(" re:");Serial.print(rightEncoder); 
+//             Serial.print(" led:");Serial.print(leftEncoderDiff); Serial.print(" red:");Serial.print(rightEncoderDiff); 
+//             Serial.print(" sf:");Serial.print(syncFactor); Serial.print(" req:");Serial.print(requestPower); Serial.print(" pos:");Serial.print(pos);Serial.print(" neg:");Serial.print(neg);Serial.println();
+//  }
               if (clockwise)
               {
                   LeftMotorPower(pos, direction);
@@ -553,10 +574,10 @@ void SampleSync()
 
 void allStop()
 {
-  if(!driving)
+  if(driveMode == DM_STOPPED)
      return;
   
-  driving = false;
+  driveMode = DM_STOPPED;
   
   RightMotorPower( 0, FORWARD); 
   LeftMotorPower(  0, FORWARD); 
@@ -667,12 +688,6 @@ void serialEvent()
 
 void beep(int count)
 {  
-  for(int i = 0 ; i < count; i++)
-  {
-     tone(speaker, NOTE_A7,50);
-     delay(200);
-  }
-  
-  delay(700);
+  beepsRemaining = count;
 }
 
